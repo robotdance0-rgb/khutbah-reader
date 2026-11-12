@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="modern-light" data-glass="regular" data-font-body="traditional" data-font-quran="warsh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="«الْإِحْسَانُ إِلَى الْوَالِدَيْنِ مِنْ مَقَامَاتِ الْإِحْسَانِ» — قارئ إلكتروني للقراءة المتواصلة بمعايير تصميم أبل (Apple Liquid Glass).">
+<meta name="theme-color" content="#f2f2f7" id="meta-theme-color">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default" id="meta-status-style">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="الخطبة">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>«الْإِحْسَانُ إِلَى الْوَالِدَيْنِ مِنْ مَقَامَاتِ الْإِحْسَانِ»</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+
+<body>
+<a class="skip-link" href="#reader">تخطَّ إلى نص الخطبة</a>
+
+<!-- ── SVG Optical Refraction Filter for Apple Liquid Glass ─────────────── -->
+<svg class="lg-svg-filters" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="liquid-glass-lens" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="7" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="1.8" result="smoothNoise"/>
+      <feDisplacementMap in="SourceGraphic" in2="smoothNoise" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+</svg>
+
+<!-- ── Top Progress Hairline ────────────────────────────────────────────── -->
+<div class="reading-progress" id="readingProgress" role="progressbar" aria-label="تقدّم القراءة" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <span id="readingProgressFill"></span>
+</div>
+
+<!-- ── Top Navigation Bar (Liquid Glass Capsules + Scroll Edge Effect) ──── -->
+<header class="toolbar" id="toolbar">
+  <div class="toolbar__inner">
+    <div class="toolbar__leading">
+      <button class="nav-pill lg-pill lg-interactive" id="btnNavChapter" type="button" title="الانتقال السريع بين الخطبتين" aria-label="الانتقال إلى الخطبة التالية">
+        <span class="nav-pill__dot" aria-hidden="true"></span>
+        <span id="navChapterText">الخطبة ١</span>
+      </button>
+    </div>
+
+    <p class="toolbar__title" id="toolbarTitle">«الْإِحْسَانُ إِلَى الْوَالِدَيْنِ مِنْ مَقَامَاتِ الْإِحْسَانِ»</p>
+
+    <div class="toolbar__actions">
+      <div class="toolbar__capsule lg-capsule lg-interactive" role="group" aria-label="أدوات الشريط العلوي">
+        <button class="iconbtn" id="btnCopy" type="button"
+                aria-label="نسخ نص الخطبة" title="نسخ النص">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="sf"><rect x="8.5" y="8.5" width="11" height="12" rx="2.2"/><path d="M15.5 8.5V6.2a2.2 2.2 0 0 0-2.2-2.2H6.7a2.2 2.2 0 0 0-2.2 2.2v9.6a2.2 2.2 0 0 0 2.2 2.2h1.8"/></svg>
+        </button>
+        <button class="iconbtn" id="btnDark" type="button" aria-pressed="false"
+                aria-label="تفعيل الوضع الليلي" title="الوضع الليلي">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-moon sf"><path d="M20 14.3A8.4 8.4 0 0 1 9.7 4a8.4 8.4 0 1 0 10.3 10.3z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-sun sf"><circle cx="12" cy="12" r="3.9"/><path d="M12 3.4v2.1M12 18.5v2.1M20.6 12h-2.1M5.5 12H3.4M18.1 5.9l-1.5 1.5M7.4 16.6l-1.5 1.5M18.1 18.1l-1.5-1.5M7.4 7.4 5.9 5.9"/></svg>
+        </button>
+        <button class="iconbtn" id="btnPanel" type="button" aria-expanded="false" aria-controls="panel"
+                aria-label="فتح إعدادات القراءة" title="إعدادات القراءة">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="sf"><path d="M4 7.5h16M4 12h16M4 16.5h16"/><circle cx="15" cy="7.5" r="2.1"/><circle cx="9" cy="12" r="2.1"/><circle cx="16" cy="16.5" r="2.1"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Floating Liquid Glass Toast HUD ──────────────────────────────────── -->
+<div class="toast lg-pill" id="toast" role="status" aria-live="polite" aria-atomic="true">
+  <span class="toast__dot" aria-hidden="true"></span>
+  <span id="toastText"></span>
+</div>
+
+<!-- ── The Document (Content Layer) ─────────────────────────────────────── -->
+<main class="reader" id="reader">
+  <div class="reader-intro">
+    <div class="reader-intro__badge-row">
+      <p class="reader-intro__eyebrow" id="introEyebrow">خطبة الجمعة</p>
+      <span class="reader-intro__dot" aria-hidden="true"></span>
+      <span class="reader-intro__meta" id="readingMeta">قراءة متأنية • ~٧ دقائق</span>
+    </div>
+    <h1 id="introTitle">«الْإِحْسَانُ إِلَى الْوَالِدَيْنِ مِنْ مَقَامَاتِ الْإِحْسَانِ»</h1>
+    <p class="reader-intro__sub" id="introSub">قراءة هادئة للخطبتين بمعايير تصميم أبل (Liquid Glass)</p>
+    <nav class="chapter-switch" id="chapterSwitch" aria-label="الانتقال بين الخطبتين">
+      <a href="#p0" class="is-active">الخطبة الأولى</a><a href="#p2">الخطبة الثانية</a>
+    </nav>
+  </div>
+
+  <article class="sheet" id="sheet" lang="ar" dir="rtl" data-document-id="2026-02-13-ihsan-ila-al-walidayn">
+<h2 class="doc-section" id="p0"><span class="doc-section__text">الْخُطْبَةُ الْأُولَى</span></h2>
+<p class="doc-body" id="p1">الْحَمْدُ لِلَّهِ الَّذِي مَنَّ عَلَى الْإِنْسَانِ بِالْإِيجَادِ، وَأَكْرَمَهُ بِتَوَاصُلِ الْإِمْدَادِ، وَفَتَحَ عَلَيْهِ أَسْبَابَ الْإِسْعَادِ بِاخْتِيَارِ وَالِدَيْهِ وَمَنْ حَوْلَهُ مِنَ الْأَقَارِبِ وَالْأَحْفَادِ، نَحْمَدُهُ تَعَالَى عَلَى نِعَمِهِ الَّتِي لَا تُعَدُّ وَلَا تُحْصَى، وَنَشْهَدُ أَنْ لَا إِلَهَ إِلَّا اللَّهُ، لَهُ الْأَسْمَاءُ الْحُسْنَى، هُوَ الْفَرْدُ الصَّمَدُ لَمْ يَلِدْ وَلَمْ يُولَدْ، وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ، وَنَشْهَدُ أَنَّ سَيِّدَنَا مُحَمَّدًا عَبْدُ اللَّهِ وَرَسُولُهُ، أَرْسَلَهُ بِالْهُدَى وَدِينِ الْحَقِّ لِيُظْهِرَهُ عَلَى الدِّينِ كُلِّهِ وَلَوْ كَرِهَ الْمُشْرِكُونَ، صَلَّى اللَّهُ وَسَلَّمَ عَلَيْهِ صَلَاةً وَسَلَامًا تَامَّيْنِ بِتَمَامِ مُلْكِهِ، وَعَلَى آلِهِ الطَّيِّبِينَ الشُّرَفَاءِ، وَصَحَابَتِهِ الْكِرَامِ أُولِي الصِّدْقِ وَالْوَفَاءِ، وَعَلَى مَنْ تَبِعَهُمْ وَاقْتَفَى أَثَرَهُمْ فِي الْإِحْسَانِ إِلَى الْوَالِدَيْنِ إِلَى يَوْمِ الْجَزَاءِ. <span class="r-label">أَمَّا بَعْدُ؛</span> فَيَا مَعَاشِرَ الْمُؤْمِنِينَ وَالْمُؤْمِنَاتِ، يَقُولُ اللَّهُ تَعَالَى فِي مُحْكَمِ الْآيَاتِ: <span class="r-quran">﴿وَقَضَىٰ رَبُّكَ أَلَّا تَعْبُدُوا إِلَّا إِيَّاهُ وَبِالْوَالِدَيْنِ إِحْسَانًا ۚ إِمَّا يَبْلُغَنَّ عِندَكَ الْكِبَرَ أَحَدُهُمَا أَوْ كِلَاهُمَا فَلَا تَقُل لَّهُمَا أُفٍّ وَلَا تَنْهَرْهُمَا وَقُل لَّهُمَا قَوْلًا كَرِيمًا وَاخْفِضْ لَهُمَا جَنَاحَ الذُّلِّ مِنَ الرَّحْمَةِ وَقُل رَّبِّ ارْحَمْهُمَا كَمَا رَبَّيَانِي صَغِيرًا﴾</span> <sup class="r-ref">[1]</sup>. <span class="r-label">عِبَادَ اللَّهِ؛</span> إِنَّ مِنْ أَهْدَافِ خُطَّةِ «تَسْدِيدِ التَّبْلِيغِ» وَغَايَاتِهَا النَّبِيلَةِ هُوَ الِارْتِقَاءَ بِالْأُمَّةِ إِلَى مَقَامِ الْإِحْسَانِ، الَّذِي عَرَّفَهُ رَسُولُ اللَّهِ ﷺ بِقَوْلِهِ: <span class="r-hadith">«أَنْ تَعْبُدَ اللَّهَ كَأَنَّكَ تَرَاهُ، فَإِنْ لَمْ تَكُنْ تَرَاهُ فَإِنَّهُ يَرَاكَ»</span> <sup class="r-ref">[2]</sup>. وَسَبِيلُ بُلُوغِ مَقَامِ الْإِحْسَانِ هُوَ التَّوْحِيدُ الْخَالِصُ، وَتَزْكِيَةُ النَّفْسِ مِنْ أَدْرَانِهَا، وَمُحَاسَبَتُهَا عَلَى سَائِرِ تَصَرُّفَاتِهَا، كَمَا سَبَقَ بَيَانُهُ فِي الْخُطَبِ السَّابِقَةِ. وَمِنْ تَجَلِّيَاتِ مَقَامِ الْإِحْسَانِ فِي حَيَاةِ الْمُسْلِمِ، بَعْدَ تَوْحِيدِ اللَّهِ تَعَالَى وَتَزْكِيَةِ النَّفْسِ، الْإِحْسَانُ إِلَى الْوَالِدَيْنِ الْمَقْرُونُ بِعِبَادَةِ اللَّهِ تَعَالَى فِي الْقُرْآنِ الْكَرِيمِ فِي آيَاتٍ كَثِيرَةٍ، مِنْهَا الْآيَةُ السَّابِقَةُ: <span class="r-quran">﴿وَقَضَىٰ رَبُّكَ أَلَّا تَعْبُدُوا إِلَّا إِيَّاهُ وَبِالْوَالِدَيْنِ إِحْسَانًا﴾</span>، وَقَوْلُهُ جَلَّ ذِكْرُهُ: <span class="r-quran">﴿أَنِ اشْكُرْ لِي وَلِوَالِدَيْكَ إِلَيَّ الْمَصِيرُ﴾</span> <sup class="r-ref">[3]</sup>، وَقَوْلُهُ جَلَّتْ قُدْرَتُهُ: <span class="r-quran">﴿وَوَصَّيْنَا الْإِنسَانَ بِوَالِدَيْهِ حُسْنًا﴾</span> <sup class="r-ref">[4]</sup>. فَاقْتِرَانُ حَقِّ الْوَالِدَيْنِ بِحَقِّ اللَّهِ تَعَالَى، وَاقْتِرَانُ شُكْرِهِمَا بِشُكْرِهِ سُبْحَانَهُ، دَلِيلٌ عَلَى عَظِيمِ مَنْزِلَتِهِمَا، وَرَفِيعِ شَأْنِهِمَا، عِنْدَ اللَّهِ جَلَّ شَأْنُهُ، اعْتِرَافًا بِجَمِيلِ صَنِيعِهِمَا، وَتَقْدِيرًا لِمَا بَذَلَاهُ مِنْ رِعَايَةٍ وَإِحْسَانٍ وَتَرْبِيَةٍ؛ فَاللَّهُ تَعَالَى هُوَ الْخَالِقُ الْمُنْعِمُ الَّذِي أَوْجَدَنَا، وَاخْتَارَ لَنَا الْوَالِدَيْنِ اللَّذَيْنِ هُمَا السَّبَبُ فِي هَذَا الْإِيجَادِ، فَشُكْرُهُمَا مِنْ شُكْرِهِ وَرِضَاهُمَا مِنْ رِضَاهُ. وَهُنَا يَتَجَلَّى مَقَامُ الْإِحْسَانِ فِي مُرَاعَاةِ وَاسْتِحْضَارِ مُرَاقَبَةِ اللَّهِ عِنْدَ الْإِحْسَانِ إِلَى الْوَالِدَيْنِ، وَالْقِيَامِ بِشُؤُونِهِمَا، وَمُرَاعَاةِ أَحْوَالِهِمَا الْمُخْتَلِفَةِ، وَخَفْضِ الْجَنَاحِ لَهُمَا فِي سَائِرِ الْأَحْوَالِ امْتِثَالًا لِأَمْرِ اللَّهِ تَعَالَى، وَابْتِغَاءَ مَرْضَاتِهِ. وَقَدْ وَرَدَتْ عَنْ رَسُولِ اللَّهِ ﷺ أَحَادِيثُ كَثِيرَةٌ تُبَيِّنُ حُقُوقَ الْوَالِدَيْنِ، وَوُجُوبَ بِرِّهِمَا وَالْإِحْسَانِ إِلَيْهِمَا بِالْقَوْلِ وَالْفِعْلِ وَالسُّلُوكِ فِي حَيَاتِهِمَا، وَالتَّرَحُّمَ عَلَيْهِمَا بَعْدَ الْمَمَاتِ وَالِاسْتِغْفَارَ لَهُمَا، وَصِلَةَ مَنْ صَحِبَهُمَا مِنْ تَمَامِ الْبِرِّ وَالْإِحْسَانِ إِلَيْهِمَا. وَمِنْ ذَلِكَ مَا رَوَاهُ الْإِمَامُ التِّرْمِذِيُّ عَنْ أَبِي الدَّرْدَاءِ رَضِيَ اللَّهُ عَنْهُ قَالَ: سَمِعْتُ رَسُولَ اللَّهِ ﷺ يَقُولُ: <span class="r-hadith">«الْوَالِدُ أَوْسَطُ أَبْوَابِ الْجَنَّةِ، فَإِنْ شِئْتَ فَأَضِعْ ذَلِكَ الْبَابَ أَوِ احْفَظْهُ»</span> <sup class="r-ref">[5]</sup>. وَمِنْهَا مَا رَوَاهُ أَبُو هُرَيْرَةَ رَضِيَ اللَّهُ عَنْهُ قَالَ: جَاءَ رَجُلٌ إِلَى رَسُولِ اللَّهِ ﷺ فَقَالَ: يَا رَسُولَ اللَّهِ مَنْ أَحَقُّ النَّاسِ بِحُسْنِ صَحَابَتِي؟ - أَيْ صُحْبَتِي وَإِحْسَانِي - قَالَ: <span class="r-hadith">«أُمُّكَ»</span>، قَالَ: ثُمَّ مَنْ؟ قَالَ: <span class="r-hadith">«ثُمَّ أُمُّكَ»</span>، قَالَ: ثُمَّ مَنْ؟ قَالَ: <span class="r-hadith">«ثُمَّ أُمُّكَ»</span>، قَالَ: ثُمَّ مَنْ؟ قَالَ: <span class="r-hadith">«ثُمَّ أَبُوكَ»</span> <sup class="r-ref">[6]</sup>. وَمِنْهَا مَا رَوَاهُ أَبُو دَاوُدَ عَنْ مَالِكِ بْنِ رَبِيعَةَ السَّاعِدِيِّ رَضِيَ اللَّهُ عَنْهُ قَالَ: بَيْنَا نَحْنُ عِنْدَ رَسُولِ اللَّهِ ﷺ إِذْ جَاءَهُ رَجُلٌ مِنْ بَنِي سَلِمَةَ، فَقَالَ: يَا رَسُولَ اللَّهِ، هَلْ بَقِيَ مِنْ بِرِّ أَبَوَيَّ شَيْءٌ أَبَرُّهُمَا بِهِ بَعْدَ مَوْتِهِمَا؟ قَالَ: <span class="r-hadith">«نَعَمْ؛ الصَّلَاةُ عَلَيْهِمَا - يَعْنِي الدُّعَاءَ لَهُمَا - وَالِاسْتِغْفَارُ لَهُمَا، وَإِنْفَاذُ عَهْدِهِمَا مِنْ بَعْدِهِمَا، وَصِلَةُ الرَّحِمِ الَّتِي لَا تُوصَلُ إِلَّا بِهِمَا، وَإِكْرَامُ صَدِيقِهِمَا»</span> <sup class="r-ref">[7]</sup>. <span class="r-label">عِبَادَ اللَّهِ؛</span> مِنْ خِلَالِ مَا تَقَدَّمَ مِنَ الْآيَاتِ الْقُرْآنِيَّةِ وَالْأَحَادِيثِ النَّبَوِيَّةِ يَتَبَيَّنُ أَنَّ حَقَّ الْوَالِدَيْنِ عِنْدَ اللَّهِ تَعَالَى عَظِيمٌ، وَأَنَّ بِرَّهُمَا بَابٌ مِنْ أَبْوَابِ الْجَنَّةِ لِمَنْ أَحْسَنَ إِلَيْهِمَا، وَكَفَّ الْإِسَاءَةَ عَنْهُمَا، وَتَفَانَى فِي خِدْمَتِهِمَا وَرِعَايَتِهِمَا، وَلَا سِيَّمَا عِنْدَ الضَّعْفِ وَالْكِبَرِ، وَالْمُوَفَّقُ مَنْ وَفَّقَهُ اللَّهُ تَعَالَى. <span class="r-label">نَفَعَنِي اللَّهُ وَإِيَّاكُمْ بِقُرْآنِهِ الْمُبِينِ وَبِحَدِيثِ سَيِّدِ الْأَوَّلِينَ وَالْآخِرِينَ، وَآخِرُ دَعْوَانَا أَنِ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ.</span></p>
+<h2 class="doc-section" id="p2"><span class="doc-section__text">الْخُطْبَةُ الثَّانِيَةُ</span></h2>
+<p class="doc-body" id="p3">الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ، وَالصَّلَاةُ وَالسَّلَامُ عَلَى الْمَبْعُوثِ رَحْمَةً لِلْعَالَمِينَ، سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ أَجْمَعِينَ. <span class="r-label">مَعَاشِرَ الْمُؤْمِنِينَ وَالْمُؤْمِنَاتِ؛</span> إِذَا كَانَ بِرُّ الْوَالِدَيْنِ وَالْإِحْسَانُ إِلَيْهِمَا بِالْمَنْزِلَةِ الرَّفِيعَةِ الَّتِي دَلَّتْ عَلَيْهَا الْآيَاتُ الْقُرْآنِيَّةُ، وَأَكَّدَتْهَا الْأَحَادِيثُ النَّبَوِيَّةُ، فَإِنَّ عُقُوقَهُمَا مِنْ أَكْبَرِ الْكَبَائِرِ وَعَظَائِمِ الذُّنُوبِ، وَمِنْ مَظَاهِرِهِ فِي الزَّمَنِ الْحَاضِرِ: الِانْشِغَالُ عَنْ مُجَالَسَةِ الْوَالِدَيْنِ بِأُمُورٍ أَقَلَّ مِنْ فَضْلِ تِلْكَ الْمُجَالَسَةِ. وَمِنْهُ التَّضَجُّرُ فِي خِدْمَتِهِمَا خَاصَّةً عِنْدَ ضَعْفِهِمَا، وَهِيَ مَرْحَلَةٌ يَظْهَرُ فِيهَا صِدْقُ بِرِّ الْأَبْنَاءِ، وَمِمَّا قَدْ يُفْضِي إِلَى هَذَا الْحَالِ حُبُّ الِاسْتِقْلَالِ الْمُفْرِطِ الْمُفْضِي لِلْأَنَانِيَّةِ الْمَذْمُومَةِ فِي الْإِسْلَامِ. كَمَا قَالَ النَّبِيُّ ﷺ: <span class="r-hadith">«أَلَا أُنَبِّئُكُمْ بِأَكْبَرِ الْكَبَائِرِ؟» قُلْنَا: بَلَى يَا رَسُولَ اللَّهِ، قَالَ: «الْإِشْرَاكُ بِاللَّهِ، وَعُقُوقُ الْوَالِدَيْنِ»، وَكَانَ مُتَّكِئًا فَجَلَسَ فَقَالَ: «أَلَا وَقَوْلُ الزُّورِ، وَشَهَادَةُ الزُّورِ، أَلَا وَقَوْلُ الزُّورِ، وَشَهَادَةُ الزُّورِ» فَمَا زَالَ يَقُولُهَا، حَتَّى قُلْتُ: لَا يَسْكُتُ</span> <sup class="r-ref">[8]</sup>. وَهَكَذَا، عِبَادَ اللَّهِ، جَاءَتْ وَصَايَا الْقُرْآنِ الْكَرِيمِ وَالسُّنَّةِ النَّبَوِيَّةِ تَحُثُّ عَلَى بِرِّ الْوَالِدَيْنِ، فِي أَعْلَى مُسْتَوَى الْعِنَايَةِ بِحُقُوقِهِمَا بَعْدَ حُقُوقِ اللَّهِ تَعَالَى، رَحْمَةً بِهِمَا، وَوَفَاءً لِعَهْدِهِمَا، وَاعْتِرَافًا بِجَمِيلِ صَنِيعِهِمَا، وَأَدَاءً لِبَعْضِ مَا يَجِبُ تُجَاهَهُمَا. وَيَجْمُلُ بِالْآبَاءِ وَالْأُمَّهَاتِ كَذَلِكَ أَنْ يُسَاعِدُوا أَبْنَاءَهُمْ عَلَى بِرِّهِمْ وَالْإِحْسَانِ إِلَيْهِمْ بِالرِّفْقِ بِهِمْ، وَحُسْنِ تَرْبِيَتِهِمْ وَتَحْقِيقِ الْعَدْلِ بَيْنَهُمْ، وَاتِّخَاذِ أَنْفُسِهِمْ قُدْوَةً لَهُمْ، وَتَنْشِئَتِهِمْ عَلَى الْمَحَبَّةِ وَالْإِيثَارِ، وَبِذَلِكَ تَعِيشُ الْأُسْرَةُ بِكُلِّ مُكَوِّنَاتِهَا الْحَيَاةَ الطَّيِّبَةَ فِي عَلَاقَاتِهَا الْيَوْمِيَّةِ مَلْؤُهَا الْمَحَبَّةُ وَالسَّكِينَةُ وَالرَّحْمَةُ وَالْوَفَاءُ وَالْمَوَدَّةُ؛ كَمَا عَاشَهَا الرَّسُولُ ﷺ مَعَ أَهْلِهِ وَذَوِيهِ، لَا بِكَثْرَةِ الْعَرَضِ وَالْمَتَاعِ، وَإِنَّمَا بِحُسْنِ الْمُعَاشَرَةِ وَطِيبِ الطِّبَاعِ. أَلَا فَاتَّقُوا اللَّهَ عِبَادَ اللَّهِ، وَصَلُّوا وَسَلِّمُوا عَلَى الْهَادِي الْأَمِينِ، سَيِّدِنَا مُحَمَّدٍ؛ اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ وَأَنْعِمْ عَلَى مَنْ أَرْسَلْتَهُ بَشِيرًا وَنَذِيرًا، وَدَاعِيًا إِلَى اللَّهِ بِإِذْنِهِ وَسِرَاجًا مُنِيرًا، سَيِّدِنَا وَحَبِيبِنَا وَنَبِيِّنَا مُحَمَّدٍ، عَدَدَ خَلْقِكَ وَرِضَا نَفْسِكَ وَزِنَةَ عَرْشِكَ وَمِدَادَ كَلِمَاتِكَ. وَارْضَ اللَّهُمَّ عَنِ الْخُلَفَاءِ الرَّاشِدِينَ الْمَهْدِيِّينَ؛ أَبِي بَكْرٍ وَعُمَرَ وَعُثْمَانَ وَعَلِيٍّ، وَعَنْ بَاقِي الصَّحْبِ مِنَ الْمُهَاجِرِينَ وَالْأَنْصَارِ وَمَنْ تَبِعَهُمْ وَاهْتَدَى بِهَدْيِهِمْ إِلَى يَوْمِ الدِّينِ. وَانْصُرِ اللَّهُمَّ بِنَصْرِكَ الْمُبِينِ، وَتَأْيِيدِكَ الْمَتِينِ مَنِ اسْتَرْعَيْتَهُ أَمْرَ عِبَادِكَ، وَبَسَطْتَ يَدَهُ فِي أَرْضِكَ وَبِلَادِكَ، مَوْلَانَا أَمِيرَ الْمُؤْمِنِينَ صَاحِبَ الْجَلَالَةِ الْمَلِكَ مُحَمَّدًا السَّادِسَ، اللَّهُمَّ وَفِّقْهُ لِلْخَيْرِ وَأَعِنْهُ عَلَيْهِ، وَمَتِّعْهُ بِتَمَامِ الصِّحَّةِ وَجَمِيلِ الْعَافِيَةِ، وَأَقِرَّ عَيْنَ جَلَالَتِهِ بِوَلِيِّ عَهْدِهِ الْمَحْبُوبِ صَاحِبِ السُّمُوِّ الْمَلَكِيِّ الْأَمِيرِ الْجَلِيلِ مَوْلَايَ الْحَسَنِ، وَشُدَّ أَزْرَهُ بِشَقِيقِهِ السَّعِيدِ الْأَمِيرِ الْجَلِيلِ مَوْلَايَ رَشِيدٍ، وَبِبَاقِي أَفْرَادِ الْأُسْرَةِ الْمَلَكِيَّةِ الشَّرِيفَةِ. وَتَغَمَّدِ اللَّهُمَّ بِوَاسِعِ رَحْمَتِكَ الْمَلِكَيْنِ الْجَلِيلَيْنِ؛ مَوْلَانَا مُحَمَّدًا الْخَامِسَ، وَمَوْلَانَا الْحَسَنَ الثَّانِيَ، اللَّهُمَّ ارْفَعْ مَقَامَهُمَا فِي أَعْلَى عِلِّيِّينَ، وَاجْزِهِمَا عَنَّا خَيْرَ مَا جَزَيْتَ مُحْسِنًا عَنْ إِحْسَانِهِمَا، وَاجْعَلْهُمَا فِي مَقْعَدِ صِدْقٍ عِنْدَكَ. اللَّهُمَّ ارْحَمْنَا وَارْحَمْ وَالِدِينَا وَأُمَّهَاتِنَا وَأَجْدَادَنَا، اللَّهُمَّ ارْحَمْهُمْ كَمَا رَبَّوْنَا صِغَارًا، وَأَحْسِنْ إِلَيْهِمْ كَمَا أَحْسَنُوا إِلَيْنَا، وَاجْزِهِمْ عَلَى تَرْبِيَتِهِمْ وَسَعْيِهِمُ الْمَشْكُورِ خَيْرَ الْجَزَاءِ. رَبَّنَا اغْفِرْ لَنَا وَلِوَالِدِينَا وَلِلْمُؤْمِنِينَ يَوْمَ يَقُومُ الْحِسَابُ، رَبَّنَا أَوْزِعْنَا أَنْ نَشْكُرَ نِعْمَتَكَ الَّتِي أَنْعَمْتَ عَلَيْنَا وَعَلَى وَالِدِينَا وَأَنْ نَعْمَلَ صَالِحًا تَرْضَاهُ وَأَدْخِلْنَا بِرَحْمَتِكَ فِي عِبَادِكَ الصَّالِحِينَ. رَبَّنَا اغْفِرْ لَنَا وَلِإِخْوَانِنَا الَّذِينَ سَبَقُونَا بِالْإِيمَانِ، وَلَا تَجْعَلْ فِي قُلُوبِنَا غِلًّا لِلَّذِينَ آمَنُوا رَبَّنَا إِنَّكَ رَؤُوفٌ رَحِيمٌ. رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ. <span class="r-label">سُبْحَانَ رَبِّكَ رَبِّ الْعِزَّةِ عَمَّا يَصِفُونَ، وَسَلَامٌ عَلَى الْمُرْسَلِينَ، وَالْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ.</span></p>
+</article>
+</main>
+
+<!-- ── Floating Bottom Dock (Liquid Glass Controls) ─────────────────────── -->
+<div class="dock" id="dock" role="region" aria-label="شريط التحكم السريع">
+  <div class="dock__capsule lg-capsule lg-interactive">
+    <button class="dock__play" id="btnAutoPlay" type="button" aria-pressed="false" aria-label="تشغيل التمرير التلقائي" title="تشغيل أو إيقاف التمرير التلقائي">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-play sf"><polygon points="7 5 19 12 7 19 7 5" fill="currentColor"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-pause sf"><rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor"/></svg>
+      <span id="dockPlayLabel">تمرير تلقائي</span>
+    </button>
+    <button class="dock__speed" id="btnDockSpeed" type="button" title="تغيير سرعة التمرير التلقائي" aria-label="سرعة التمرير التلقائي">1×</button>
+    <span class="dock__sep" aria-hidden="true"></span>
+    <button class="iconbtn" id="btnDockSizeDown" type="button" aria-label="تصغير الخط" title="تصغير الخط">أ−</button>
+    <button class="iconbtn" id="btnDockSizeUp" type="button" aria-label="تكبير الخط" title="تكبير الخط">أ+</button>
+    <span class="dock__sep" aria-hidden="true"></span>
+    <button class="iconbtn" id="btnShare" type="button" aria-label="مشاركة الخطبة" title="مشاركة">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="sf"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M5 13v5.2A1.8 1.8 0 0 0 6.8 20h10.4a1.8 1.8 0 0 0 1.8-1.8V13"/></svg>
+    </button>
+    <button class="iconbtn" id="btnTop" type="button" aria-label="العودة إلى أعلى الصفحة" title="إلى الأعلى">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="sf"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ── Settings Backdrop & Half-Sheet Panel ─────────────────────────────── -->
+<div class="panel-backdrop" id="panelBackdrop" aria-hidden="true"></div>
+
+<aside class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle" hidden>
+  <div class="panel__grab" aria-hidden="true"></div>
+  <div class="panel__head">
+    <h2 class="panel__title" id="panelTitle">إعدادات القراءة</h2>
+    <button class="iconbtn" id="btnPanelClose" type="button" aria-label="إغلاق الإعدادات">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="sf"><path d="M6.8 6.8 17.2 17.2M17.2 6.8 6.8 17.2"/></svg>
+    </button>
+  </div>
+
+  <div class="panel__body" id="panelBody">
+    <section class="field">
+      <h3 class="field__label" id="lblTheme">سمة الصفحة (Apple Books)</h3>
+      <div class="themes" role="radiogroup" aria-labelledby="lblTheme" id="themeGroup">
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="false" data-theme="system">
+          <span class="theme__chip" data-chip="system" aria-hidden="true"></span>
+          <span class="theme__name">تلقائي حسب الجهاز</span>
+          <span class="theme__note">يتبع إعدادات النظام</span>
+        </button>
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="false" data-theme="warm-paper">
+          <span class="theme__chip" data-chip="warm-paper" aria-hidden="true"></span>
+          <span class="theme__name">ورقٌ دافئ</span>
+          <span class="theme__note">الأنسب للقراءة الطويلة</span>
+        </button>
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="true" data-theme="modern-light">
+          <span class="theme__chip" data-chip="modern-light" aria-hidden="true"></span>
+          <span class="theme__name">أبيضُ حديث</span>
+          <span class="theme__note">وضوحٌ عالٍ</span>
+        </button>
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="false" data-theme="sepia">
+          <span class="theme__chip" data-chip="sepia" aria-hidden="true"></span>
+          <span class="theme__name">سِبْيا</span>
+          <span class="theme__note">أسلوب الكتاب الإلكتروني</span>
+        </button>
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="false" data-theme="dark">
+          <span class="theme__chip" data-chip="dark" aria-hidden="true"></span>
+          <span class="theme__name">ليليّ</span>
+          <span class="theme__note">للقراءة في الظلام</span>
+        </button>
+        <button class="theme lg-interactive" type="button" role="radio" aria-checked="false" data-theme="blue-gray">
+          <span class="theme__chip" data-chip="blue-gray" aria-hidden="true"></span>
+          <span class="theme__name">رماديٌّ أزرق</span>
+          <span class="theme__note">هدوءٌ بارد</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblFontBody">الخطوط العربية والقرآنية</h3>
+      <p class="field__sublabel">خط نص الخطبة</p>
+      <div class="segmented" role="radiogroup" aria-labelledby="lblFontBody" id="fontBodyGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true" data-font-body="traditional">Traditional Arabic</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-font-body="naskh">نسخ تراثي</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-font-body="system">أبل الرسمي</button>
+      </div>
+      <p class="field__sublabel">خط الآيات القرآنية</p>
+      <div class="segmented" role="radiogroup" aria-label="خط الآيات القرآنية" id="fontQuranGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true" data-font-quran="warsh">AlMaghribi Warsh Quran</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-font-quran="traditional">Traditional Arabic</button>
+      </div>
+      <p class="field__help">
+        يعرض متن الخطبة بخط Traditional Arabic الأصيل، والآيات القرآنية الكريمة بخط المغربي ورش (AlMaghribi Warsh Quran) المدمج.
+      </p>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblGlass">نمط مادة Liquid Glass</h3>
+      <div class="segmented" role="radiogroup" aria-labelledby="lblGlass" id="glassGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true" data-glass-variant="regular">قياسي (Regular)</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-glass-variant="clear">شفاف (Clear)</button>
+      </div>
+      <p class="field__help">
+        يوازن النمط القياسي بين الضبابية والسطوع لأعلى وضوح، بينما يتيح النمط الشفاف رؤيةً أعمق للخلفية.
+      </p>
+    </section>
+
+    <section class="field">
+      <div class="field__head">
+        <h3 class="field__label" id="lblSize">حجم الخط</h3>
+      </div>
+      <div class="stepper" aria-labelledby="lblSize">
+        <button class="stepper__btn" id="sizeDown" type="button" aria-label="تصغير حجم الخط">−</button>
+        <output class="stepper__value" id="sizeValue" for="sizeDown sizeUp">100%</output>
+        <button class="stepper__btn" id="sizeUp" type="button" aria-label="تكبير حجم الخط">+</button>
+      </div>
+      <div class="slider-row">
+        <span class="slider-row__glyph slider-row__glyph--sm" aria-hidden="true">أ</span>
+        <input class="size-slider" id="sizeSlider" type="range" min="75" max="180" step="1" value="100" aria-labelledby="lblSize" aria-valuetext="100 بالمئة">
+        <span class="slider-row__glyph slider-row__glyph--lg" aria-hidden="true">أ</span>
+      </div>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblLead">تباعد الأسطر</h3>
+      <div class="segmented" role="radiogroup" aria-labelledby="lblLead" id="leadGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-lh="1.85">مضغوط</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true"  data-lh="2.1">متوسط</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-lh="2.45">مريح</button>
+      </div>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblKashida">الكشيدة وموازنة الأسطر (ـــ)</h3>
+      <div class="segmented" role="radiogroup" aria-labelledby="lblKashida" id="kashidaGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-kashida="off">بدون</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-kashida="low">خفيفة</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true"  data-kashida="medium">متوسطة</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-kashida="high">عالية</button>
+      </div>
+      <p class="field__help">
+        تمديد الحروف لضبط استقامة أطراف الأسطر مع الحفاظ التام على الرسم العثماني للآيات القرآنية.
+      </p>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblWidth">عرض عمود القراءة</h3>
+      <div class="segmented" role="radiogroup" aria-labelledby="lblWidth" id="widthGroup">
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-width="32">ضيّق</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="true"  data-width="40">متوسط</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-width="48">واسع</button>
+        <button class="segmented__opt" type="button" role="radio" aria-checked="false" data-width="64">كامل</button>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="fullToggle">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">وضع ملء الشاشة</span>
+      </label>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblSpeed">سرعة التمرير التلقائي (انسيابي 120Hz)</h3>
+      <div class="speedGroup" role="radiogroup" aria-labelledby="lblSpeed" aria-describedby="speedHelp" id="speedGroup">
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="0.75">0.75×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="true"  data-speed="1">1×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="1.25">1.25×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="1.5">1.5×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="1.75">1.75×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="2">2×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="2.5">2.5×</button>
+        <button class="speedChip lg-interactive" type="button" role="radio" aria-checked="false" data-speed="3">3×</button>
+      </div>
+      <p class="field__help" id="speedHelp">
+        المس النص لمسةً واحدة لإيقاف التمرير مؤقتًا، ثم المسه مرة أخرى للاستئناف. وإذا مرّرت بإصبعك يتوقف التمرير أثناء لمسك ثم يُستأنف من موضعك الجديد.
+      </p>
+      <label class="switch">
+        <input type="checkbox" id="autoToggle">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">تشغيل التمرير التلقائي</span>
+      </label>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblAccent">لون التمييز وأدوات التحكم</h3>
+      <div class="accent-row">
+        <div class="accent-swatches" id="accentSwatches" role="group" aria-label="ألوان أبل القياسية">
+          <button type="button" class="accent-swatch is-active" data-color="#007aff" style="background:#007AFF" aria-label="أزرق أبل"></button>
+          <button type="button" class="accent-swatch" data-color="#34c759" style="background:#34C759" aria-label="أخضر زمردي"></button>
+          <button type="button" class="accent-swatch" data-color="#5856d6" style="background:#5856D6" aria-label="نيلي"></button>
+          <button type="button" class="accent-swatch" data-color="#ff9500" style="background:#FF9500" aria-label="كهرماني"></button>
+          <button type="button" class="accent-swatch" data-color="#b48228" style="background:#B48228" aria-label="ذهبي تراثي"></button>
+        </div>
+        <label class="accent-picker" for="accentColor">
+          <span>مخصّص</span>
+          <input id="accentColor" type="color" value="#007aff" aria-labelledby="lblAccent">
+        </label>
+      </div>
+    </section>
+
+    <section class="field">
+      <h3 class="field__label" id="lblLowData">توفير الطاقة والشفافية</h3>
+      <label class="switch">
+        <input type="checkbox" id="lowDataToggle">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">تقليل الشفافية (Reduce Transparency)</span>
+      </label>
+      <p class="field__help" id="lowDataHelp">
+        يستبدل انكسار وضبابية Liquid Glass بأسطح معتمة عالية التباين لتوفير البطارية وزيادة الوضوح.
+      </p>
+    </section>
+
+    <section class="field">
+      <button class="textbtn textbtn--danger lg-interactive" id="btnReset" type="button">إعادة ضبط التفضيلات</button>
+    </section>
+  </div>
+</aside>
+
+<!-- ── In-Page Liquid Glass Confirmation Alert ──────────────────────────── -->
+<div class="alert-backdrop" id="resetModal" role="alertdialog" aria-modal="true" aria-labelledby="resetModalTitle" aria-describedby="resetModalDesc" hidden>
+  <div class="alert-dialog lg-alert">
+    <h3 class="alert-dialog__title" id="resetModalTitle">إعادة ضبط التفضيلات</h3>
+    <p class="alert-dialog__desc" id="resetModalDesc">هل ترغب في استعادة الإعدادات الافتراضية للقارئ والخطوط والسمة؟</p>
+    <div class="alert-dialog__actions">
+      <button class="alert-btn" id="btnResetCancel" type="button">إلغاء</button>
+      <button class="alert-btn alert-btn--danger" id="btnResetConfirm" type="button">إعادة الضبط</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
