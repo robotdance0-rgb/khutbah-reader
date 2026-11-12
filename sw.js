@@ -8,7 +8,7 @@
  *
  * Bump CACHE_VERSION only when files are added to or removed from PRECACHE.
  */
-var CACHE_VERSION = 'khutbah-reader-v1';
+var CACHE_VERSION = 'khutbah-reader-v2';
 var NETWORK_TIMEOUT = 4000;
 
 var PRECACHE = [
@@ -19,7 +19,7 @@ var PRECACHE = [
   './manifest.webmanifest',
   './fonts/uthman-taha-naskh-bold.woff2',
   './fonts/uthman-taha-naskh-regular.woff2',
-  './fonts/almaghribi-warsh-quran.woff2',
+  './fonts/warsh-uthmanic.woff2',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
