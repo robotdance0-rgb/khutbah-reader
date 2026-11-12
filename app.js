@@ -39,6 +39,7 @@
       btnSmaller: $('btnSmaller'),
       btnLarger: $('btnLarger'),
       btnAuto: $('btnAuto'),
+      btnVoice: $('btnVoice'),
       btnDark: $('btnDark'),
       btnPanel: $('btnPanel'),
       btnPanelClose: $('btnPanelClose'),
@@ -715,6 +716,7 @@
       start: function (announce) {
         if (this.running) return;
         this.tapPaused = false;
+        if (Voice.active) Voice.stop(false);
         Metrics.refresh();
         if (window.scrollY >= Metrics.maxScroll - 2) {
           window.scrollTo(0, 0);
@@ -1473,10 +1475,381 @@
         target.closest('.toolbar, .reader-actionbar, .dock, .panel, .scrim, .alert-backdrop, .skip-link'));
     }
 
+    /* -------------------------------------------------------------------- */
+    /* Voice Follow — listens to the khateeb and highlights what was said   */
+    /* -------------------------------------------------------------------- */
+    /* Speech is turned into text by the browser (Chrome: Google, Safari: Apple)
+       and matched against the khutbah word by word, ignoring diacritics,
+       tatweel and hamza forms. The current word and sentence are painted with
+       the CSS Custom Highlight API, so the text itself (and the kashida engine
+       that rewrites it) is never touched. */
+
+    var VOICE_LANGS = ['ar-SA', 'ar-MA', 'ar'];
+
+    function voiceNorm(word) {
+      return String(word)
+        .replace(/[ؐ-ًؚ-ٰٟۖ-ۭ࣓-ࣿـ]/g, '')
+        .replace(/[آأإٱٲٳ]/g, 'ا')
+        .replace(/ى/g, 'ي')
+        .replace(/ئ/g, 'ي')
+        .replace(/ؤ/g, 'و')
+        .replace(/ة/g, 'ه')
+        .replace(/ڢ/g, 'ف')
+        .replace(/ڧ/g, 'ق')
+        .replace(/ں/g, 'ن')
+        .replace(/[^ء-ي]/g, '');
+    }
+
+    function voiceSim(a, b) {
+      if (a === b) return 1;
+      var la = a.length, lb = b.length;
+      if (!la || !lb) return 0;
+      var prev = [], cur = [], i, j;
+      for (j = 0; j <= lb; j++) prev[j] = j;
+      for (i = 1; i <= la; i++) {
+        cur = [i];
+        for (j = 1; j <= lb; j++) {
+          cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                            prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+        }
+        prev = cur;
+      }
+      return 1 - prev[lb] / Math.max(la, lb);
+    }
+
+    var Voice = {
+      active: false,
+      rec: null,
+      langIndex: 0,
+      words: [],          /* { node, start, end, norm, sentence } */
+      dirty: true,
+      pos: -1,            /* index of the last word the khateeb said */
+      locked: false,      /* false until the first confident match */
+      lastScroll: 0,
+      restartTimer: 0,
+      wakeLock: null,
+      observer: null,
+
+      supported: function () {
+        return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+      },
+
+      /* Build the word list from the khutbah text nodes (footnote markers skipped). */
+      index: function () {
+        var words = [];
+        var sentence = 0;
+        var blocks = el.sheet.querySelectorAll('.doc-body');
+        for (var b = 0; b < blocks.length; b++) {
+          var walker = document.createTreeWalker(blocks[b], NodeFilter.SHOW_TEXT, null);
+          while (walker.nextNode()) {
+            var node = walker.currentNode;
+            if (node.parentElement && node.parentElement.closest('sup, .r-ref')) continue;
+            var text = node.nodeValue;
+            var re = /\S+/g, m;
+            while ((m = re.exec(text))) {
+              var n = voiceNorm(m[0]);
+              if (!n) {
+                if (/[.؟?!:؛،]/.test(m[0]) && words.length) sentence++;
+                continue;
+              }
+              words.push({ node: node, start: m.index, end: m.index + m[0].length, norm: n, sentence: sentence });
+              if (/[.؟?!:؛،]/.test(m[0])) sentence++;
+            }
+          }
+          sentence++;
+        }
+        this.words = words;
+        this.dirty = false;
+      },
+
+      ensureIndex: function () {
+        if (this.dirty || !this.words.length ||
+            (this.words[0] && !el.sheet.contains(this.words[0].node))) {
+          this.index();
+        }
+      },
+
+      watchText: function () {
+        if (this.observer || !window.MutationObserver) return;
+        var self = this;
+        /* Kashida rewrites the paragraphs; re-index and repaint after it does. */
+        this.observer = new MutationObserver(function (records) {
+          var textChanged = false;
+          for (var i = 0; i < records.length; i++) {
+            if (!self.layer || !self.layer.contains(records[i].target)) { textChanged = true; break; }
+          }
+          if (!textChanged) return;
+          self.dirty = true;
+          if (self.active) {
+            requestAnimationFrame(function () { self.ensureIndex(); self.paint(false); });
+          }
+        });
+        this.observer.observe(el.sheet, { childList: true, subtree: true, characterData: true });
+      },
+
+      rangeFor: function (w) {
+        var r = document.createRange();
+        r.setStart(w.node, w.start);
+        r.setEnd(w.node, Math.min(w.end, w.node.nodeValue.length));
+        return r;
+      },
+
+      paint: function (scroll) {
+        if (!this.words.length || this.pos < 0) { this.clearPaint(); return; }
+        var w = this.words[Math.min(this.pos, this.words.length - 1)];
+        if (!el.sheet.contains(w.node)) return;
+
+        var a = this.pos, z = this.pos;
+        while (a > 0 && this.words[a - 1].sentence === w.sentence) a--;
+        while (z < this.words.length - 1 && this.words[z + 1].sentence === w.sentence) z++;
+        var clause = document.createRange();
+        clause.setStart(this.words[a].node, this.words[a].start);
+        clause.setEnd(this.words[z].node, Math.min(this.words[z].end, this.words[z].node.nodeValue.length));
+
+        if (window.CSS && CSS.highlights && window.Highlight) {
+          CSS.highlights.set('voice-sentence', new Highlight(clause));
+          CSS.highlights.set('voice-word', new Highlight(this.rangeFor(w)));
+        } else {
+          this.paintLayer(clause, this.rangeFor(w));
+        }
+        if (scroll !== false) this.follow(w);
+      },
+
+      clearPaint: function () {
+        if (window.CSS && CSS.highlights) {
+          CSS.highlights.delete('voice-word');
+          CSS.highlights.delete('voice-sentence');
+        }
+        if (this.layer) this.layer.innerHTML = '';
+      },
+
+      /* Older Safari (iOS 15, e.g. iPhone 7) has no CSS Highlight API: draw the
+         same highlight as boxes in a layer placed behind the text inside the
+         sheet. The text itself is still never modified. */
+      layer: null,
+
+      paintLayer: function (clause, word) {
+        if (!this.layer) {
+          this.layer = document.createElement('div');
+          this.layer.className = 'voice-layer';
+          this.layer.setAttribute('aria-hidden', 'true');
+          el.sheet.classList.add('has-voice-layer');
+          el.sheet.insertBefore(this.layer, el.sheet.firstChild);
+        }
+        var origin = el.sheet.getBoundingClientRect();
+        var ox = origin.left + el.sheet.clientLeft;
+        var oy = origin.top + el.sheet.clientTop;
+        var html = '';
+        var add = function (range, cls) {
+          var rects = range.getClientRects();
+          for (var i = 0; i < rects.length; i++) {
+            var r = rects[i];
+            if (r.width < 1 || r.height < 1) continue;
+            html += '<span class="' + cls + '" style="left:' + (r.left - ox).toFixed(1) +
+                    'px;top:' + (r.top - oy).toFixed(1) + 'px;width:' + r.width.toFixed(1) +
+                    'px;height:' + r.height.toFixed(1) + 'px"></span>';
+          }
+        };
+        add(clause, 'voice-layer__clause');
+        add(word, 'voice-layer__word');
+        this.layer.innerHTML = html;
+      },
+
+      /* Keep the current word around the upper third of the screen. */
+      follow: function (w) {
+        var now = Date.now();
+        if (now - this.lastScroll < 350) return;
+        var rect = this.rangeFor(w).getBoundingClientRect();
+        var vh = window.innerHeight;
+        if (rect.top < vh * 0.22 || rect.bottom > vh * 0.58) {
+          this.lastScroll = now;
+          window.scrollTo({ top: window.scrollY + rect.top - vh * 0.36, behavior: 'smooth' });
+        }
+      },
+
+      /* Index of the first word visible below the top bar. */
+      firstVisible: function () {
+        var limit = el.toolbar ? el.toolbar.getBoundingClientRect().bottom : 0;
+        for (var i = 0; i < this.words.length; i++) {
+          var r = this.rangeFor(this.words[i]).getBoundingClientRect();
+          if (r.bottom > limit + 4 && r.height) return i;
+        }
+        return 0;
+      },
+
+      /* Local alignment of the last spoken words against the text near `pos`. */
+      match: function (transcript) {
+        this.ensureIndex();
+        var heard = transcript.split(/\s+/).map(voiceNorm).filter(Boolean);
+        if (!heard.length) return;
+        var tail = heard.slice(-8);
+        var k = tail.length;
+
+        var from = Math.max(0, this.pos - (this.locked ? 15 : 0));
+        var to = Math.min(this.words.length, this.pos + 1 + (this.locked ? 80 : 220));
+        if (to <= from) return;
+
+        var H = [], i, j;
+        for (i = 0; i <= k; i++) { H[i] = []; for (j = 0; j <= to - from; j++) H[i][j] = 0; }
+        var best = 0, bestJ = -1;
+        for (i = 1; i <= k; i++) {
+          for (j = 1; j <= to - from; j++) {
+            var s = voiceSim(tail[i - 1], this.words[from + j - 1].norm);
+            var gain = s >= 0.84 ? (tail[i - 1].length > 2 ? 3 : 1.5) : (s >= 0.66 ? 1.5 : -1);
+            H[i][j] = Math.max(0, H[i - 1][j - 1] + gain, H[i - 1][j] - 1, H[i][j - 1] - 1);
+            if (i >= k - 1) {
+              var idx = from + j - 1;
+              var d = idx - this.pos;
+              var penalty = d < 0 ? 0.4 * -d : 0.03 * Math.max(0, d - 4);
+              var score = H[i][j] - penalty - (i < k ? 1 : 0);
+              if (score > best) { best = score; bestJ = idx; }
+            }
+          }
+        }
+
+        var need = this.locked ? 4.5 : 6;
+        if (bestJ < 0 || best < need) return;
+        if (bestJ < this.pos && best < 7) return;
+        if (bestJ === this.pos) return;
+        this.pos = bestJ;
+        this.locked = true;
+        this.paint(true);
+      },
+
+      onResult: function (event) {
+        var text = '';
+        for (var i = 0; i < event.results.length; i++) {
+          text += ' ' + event.results[i][0].transcript;
+        }
+        this.match(text);
+      },
+
+      onError: function (event) {
+        var e = event && event.error;
+        if (e === 'no-speech' || e === 'aborted') return;
+        if (e === 'language-not-supported' && this.langIndex < VOICE_LANGS.length - 1) {
+          this.langIndex++;
+          return;
+        }
+        var msg = 'تعذّر تشغيل المتابعة الصوتية';
+        if (e === 'not-allowed') msg = 'اسمح للتطبيق باستعمال الميكروفون ثم أعد المحاولة';
+        if (e === 'service-not-allowed') {
+          msg = window.navigator.standalone
+            ? 'على iPhone افتح الخطبة في Safari لتعمل المتابعة الصوتية'
+            : 'فعّل Siri والإملاء في إعدادات iPhone ثم أعد المحاولة';
+        }
+        if (e === 'network') msg = 'المتابعة الصوتية تحتاج اتصالًا بالإنترنت';
+        if (e === 'audio-capture') msg = 'لم يُعثر على ميكروفون';
+        this.stop(false);
+        Announce.say(msg, true);
+      },
+
+      listen: function () {
+        var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        var self = this;
+        var rec = new Rec();
+        rec.lang = VOICE_LANGS[this.langIndex];
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+        rec.onresult = function (e) { self.onResult(e); };
+        rec.onerror = function (e) { self.onError(e); };
+        rec.onend = function () {
+          /* Browsers end a session after silence or ~1 minute: start a new one. */
+          if (self.active && self.rec === rec) {
+            clearTimeout(self.restartTimer);
+            self.restartTimer = setTimeout(function () { if (self.active) self.listen(); }, 200);
+          }
+        };
+        this.rec = rec;
+        try { rec.start(); } catch (err) { /* already started */ }
+      },
+
+      keepAwake: function () {
+        var self = this;
+        if (!('wakeLock' in navigator) || this.wakeLock) return;
+        navigator.wakeLock.request('screen').then(function (lock) {
+          self.wakeLock = lock;
+          lock.addEventListener('release', function () { self.wakeLock = null; });
+        }).catch(function () {});
+      },
+
+      start: function () {
+        if (this.active) return;
+        if (!this.supported()) {
+          Announce.say('المتابعة الصوتية غير مدعومة في هذا المتصفح — استعمل Chrome أو Safari', true);
+          return;
+        }
+        if (AutoScroll.running) AutoScroll.stop(false);
+        AutoScroll.tapPaused = false;
+        this.watchText();
+        this.index();
+        this.pos = this.firstVisible() - 1;
+        this.locked = false;
+        this.active = true;
+        this.langIndex = 0;
+        el.body.classList.add('is-voice');
+        this.sync();
+        this.keepAwake();
+        this.listen();
+        Announce.say('المتابعة الصوتية تعمل — ابدأ القراءة', true);
+      },
+
+      stop: function (announce) {
+        if (!this.active) return;
+        this.active = false;
+        clearTimeout(this.restartTimer);
+        var rec = this.rec;
+        this.rec = null;
+        if (rec) { try { rec.abort(); } catch (err) {} }
+        if (this.wakeLock) { this.wakeLock.release().catch(function () {}); this.wakeLock = null; }
+        this.clearPaint();
+        el.body.classList.remove('is-voice');
+        this.sync();
+        if (announce !== false) Announce.say('توقفت المتابعة الصوتية', true);
+      },
+
+      toggle: function () { this.active ? this.stop() : this.start(); },
+
+      sync: function () {
+        if (!el.btnVoice) return;
+        el.btnVoice.setAttribute('aria-pressed', String(this.active));
+        el.btnVoice.setAttribute('aria-label', this.active ? 'إيقاف المتابعة الصوتية' : 'المتابعة الصوتية');
+      },
+
+      /* Tap a word while following to tell the app where the khateeb is. */
+      anchorAt: function (x, y) {
+        var node = null, offset = 0;
+        if (document.caretPositionFromPoint) {
+          var cp = document.caretPositionFromPoint(x, y);
+          if (cp) { node = cp.offsetNode; offset = cp.offset; }
+        } else if (document.caretRangeFromPoint) {
+          var cr = document.caretRangeFromPoint(x, y);
+          if (cr) { node = cr.startContainer; offset = cr.startOffset; }
+        }
+        if (!node) return false;
+        this.ensureIndex();
+        for (var i = 0; i < this.words.length; i++) {
+          var w = this.words[i];
+          if (w.node === node && offset >= w.start && offset <= w.end) {
+            this.pos = i;
+            this.locked = true;
+            this.paint(false);
+            return true;
+          }
+        }
+        return false;
+      }
+    };
+
     function bindControls() {
       el.btnLarger.addEventListener('click', function () { TypeScale.nudge(1); });
       el.btnSmaller.addEventListener('click', function () { TypeScale.nudge(-1); });
       el.btnAuto.addEventListener('click', function () { AutoScroll.toggle(); });
+      if (el.btnVoice) el.btnVoice.addEventListener('click', function () { Voice.toggle(); });
+      window.addEventListener('resize', function () {
+        if (Voice.active && Voice.layer) Voice.paint(false);
+      });
       el.btnDark.addEventListener('click', function () { Theme.toggleDark(); });
       el.btnPanel.addEventListener('click', function () { Chrome.togglePanel(); });
       el.btnPanelClose.addEventListener('click', function () { Chrome.closePanel(true); });
@@ -1597,6 +1970,11 @@
 
       document.addEventListener('visibilitychange', function () {
         if (document.hidden && AutoScroll.running) AutoScroll.park();
+        /* The screen lock is dropped when the page is hidden; take it again. */
+        if (!document.hidden && Voice.active) {
+          Voice.keepAwake();
+          if (!Voice.rec) Voice.listen();
+        }
       });
 
       el.speedGroup.addEventListener('click', function (event) {
@@ -1700,6 +2078,12 @@
            When auto-scroll is off (and was not paused by a tap), a tap keeps
            its usual job of showing / hiding the bars. */
         if (event.target.closest('#sheet')) {
+          if (Voice.active) {
+            /* While following the voice, a tap on a word moves the highlight there. */
+            Voice.anchorAt(event.clientX, event.clientY);
+            Chrome.show();
+            return;
+          }
           if (AutoScroll.running) {
             AutoScroll.stop(true, 'إيقاف مؤقت — المس النص للاستئناف');
             AutoScroll.tapPaused = true;

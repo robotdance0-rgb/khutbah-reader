@@ -1956,3 +1956,42 @@ html[data-theme="dark"] .switch__track {
   }
   .sheet { max-width: none; font-size: 13pt; }
 }
+
+/* ── Voice Follow: microphone button + iPhone-style word / sentence highlight ── */
+.iconbtn--voice[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ios-tint) 88%, rgba(255, 255, 255, 0.2));
+  color: var(--ios-on-tint);
+  animation: voice-listening 1.8s ease-in-out infinite;
+}
+@keyframes voice-listening {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ios-tint) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ios-tint) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .iconbtn--voice[aria-pressed="true"] { animation: none; }
+}
+::highlight(voice-sentence) {
+  background-color: color-mix(in srgb, var(--ios-tint) 14%, transparent);
+}
+::highlight(voice-word) {
+  background-color: var(--ios-tint);
+  color: var(--ios-on-tint);
+}
+
+/* Fallback highlight for browsers without the CSS Highlight API (iOS 15 / iPhone 7).
+   Boxes sit behind the text inside the sheet; opacity is used instead of color-mix()
+   because older Safari does not support color-mix(). */
+.sheet.has-voice-layer { isolation: isolate; }
+.voice-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.voice-layer > span {
+  position: absolute;
+  background: var(--ios-tint);
+  border-radius: 4px;
+}
+.voice-layer__clause { opacity: 0.14; }
+.voice-layer__word   { opacity: 0.42; }
