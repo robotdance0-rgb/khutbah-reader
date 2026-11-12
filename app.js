@@ -1724,6 +1724,38 @@
       gap: 1.2,            /* measured seconds between recognizer answers */
       LATENCY: 0.8,        /* seconds of recognizer delay to make up for */
 
+      /* Session rotation. Safari on iPhone returns one ever-growing text that
+         never becomes final, and it answers more slowly the longer a session
+         runs. Starting a fresh session about every 30 seconds — in a short gap
+         between answers — keeps the recognizer fast for the whole khutbah. */
+      sessionStart: 0,
+      lastTranscript: '',
+      lastChangeAt: 0,
+      ROTATE_AFTER: 28000,  /* ms: rotate at the next quiet moment after this */
+      ROTATE_HARD: 45000,   /* ms: rotate anyway after this */
+      ROTATE_QUIET: 450,    /* ms without a new answer counts as a quiet moment */
+
+      rotatedAt: 0,
+
+      rotate: function () {
+        this.rotatedAt = performance.now();
+        var old = this.rec;
+        this.rec = null;
+        if (old) { try { old.abort(); } catch (err) {} }
+        clearTimeout(this.restartTimer);
+        var self = this;
+        this.restartTimer = setTimeout(function () { if (self.active && !self.rec) self.listen(); }, 60);
+      },
+
+      maybeRotate: function (now) {
+        if (!this.rec || !this.sessionStart || !this.heardSomething) return;
+        var age = now - this.sessionStart;
+        if (age > this.ROTATE_HARD ||
+            (age > this.ROTATE_AFTER && now - this.lastChangeAt > this.ROTATE_QUIET)) {
+          this.rotate();
+        }
+      },
+
       advanced: function (to) {
         var now = performance.now();
         this.history.push({ t: now, p: to });
@@ -1738,6 +1770,8 @@
           var g = (now - this.lastAdvanceAt) / 1000;
           if (g < 5) this.gap = clamp(this.gap * 0.7 + g * 0.3, 0.3, 3);
         }
+        /* the khateeb really went back (repeated a passage): follow him back */
+        if (to < this.pos - 2) this.disp = to;
         this.pos = to;
         this.lastHeardAt = now;
         this.lastAdvanceAt = now;
@@ -1756,14 +1790,23 @@
         if (this.pos < 0) return;
         var conf = this.pos;
         var limit = this.clauseEnd(conf);
-        if (this.disp < 0 || conf - this.disp > 14 || this.disp - limit > 1) {
-          this.disp = conf;                       /* first lock, or a big jump / re-anchor */
+        /* Right after a planned session restart a few words are lost on purpose:
+           keep going across one more sentence while the new session warms up. */
+        if (now - this.rotatedAt < 3500 && limit < this.words.length - 1) {
+          limit = this.clauseEnd(limit + 1);
+        }
+        /* Snap only on the first lock or a big jump forward. When the pacer is
+           ahead of what was heard it simply waits there — it never steps back
+           on its own (going back is handled in advanced(), for real re-reads). */
+        if (this.disp < 0 || conf - this.disp > 14) {
+          this.disp = conf;
         }
         /* While answers keep coming, run on at the measured pace for the time
            since the last answer plus the recognizer's delay — but not past the
            end of the clause. */
         var since = (now - this.lastAdvanceAt) / 1000;
-        var speaking = now - this.lastHeardAt < (this.gap * 1.6 + 0.8) * 1000;
+        var speaking = now - this.lastHeardAt < (this.gap * 1.6 + 0.8) * 1000 ||
+                       now - this.rotatedAt < 3500;
         var aheadSeconds = speaking ? this.LATENCY + Math.min(since, this.gap * 1.3 + 0.3) : 0;
         var goal = Math.min(conf + this.pace * aheadSeconds, limit + 0.98);
         if (this.disp < goal) {
@@ -1836,6 +1879,7 @@
           el.reader.style.transform = 'translate3d(0, 0px, 0)';
         }
 
+        self.maybeRotate(now);
         self.stepPace(now, dt);
         if (self.shown < 0) { self.raf = requestAnimationFrame(self.tick); return; }
 
@@ -1921,6 +1965,10 @@
         for (var i = Math.max(0, n - 3); i < n; i++) {
           text += ' ' + event.results[i][0].transcript;
         }
+        text = text.slice(-260);            /* the 8-word tail is all the matcher uses */
+        if (text === this.lastTranscript) return;
+        this.lastTranscript = text;
+        this.lastChangeAt = performance.now();
         this.match(text);
       },
 
@@ -1962,6 +2010,9 @@
         var self = this;
         var rec = new Rec();
         rec.lang = VOICE_LANGS[this.langIndex];
+        this.sessionStart = performance.now();
+        this.lastTranscript = '';
+        this.lastChangeAt = this.sessionStart;
         rec.continuous = true;
         rec.interimResults = true;
         rec.maxAlternatives = 1;
