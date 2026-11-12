@@ -1484,7 +1484,7 @@
        the CSS Custom Highlight API, so the text itself (and the kashida engine
        that rewrites it) is never touched. */
 
-    var VOICE_LANGS = ['ar-SA', 'ar-MA', 'ar'];
+    var VOICE_LANGS = ['ar-SA', 'ar-AE', 'ar-MA', 'ar'];
 
     function voiceNorm(word) {
       return String(word)
@@ -1717,6 +1717,7 @@
       },
 
       onResult: function (event) {
+        this.heardSomething = true;
         var text = '';
         for (var i = 0; i < event.results.length; i++) {
           text += ' ' + event.results[i][0].transcript;
@@ -1727,16 +1728,29 @@
       onError: function (event) {
         var e = event && event.error;
         if (e === 'no-speech' || e === 'aborted') return;
-        if (e === 'language-not-supported' && this.langIndex < VOICE_LANGS.length - 1) {
+        /* Safari answers "service-not-allowed" when it has no recognizer for the
+           requested locale, so try the other Arabic locales before giving up. */
+        if ((e === 'language-not-supported' || e === 'service-not-allowed') &&
+            !this.heardSomething && this.langIndex < VOICE_LANGS.length - 1) {
           this.langIndex++;
+          var self = this, old = this.rec;
+          this.rec = null;
+          if (old) { try { old.abort(); } catch (err) {} }
+          clearTimeout(this.restartTimer);
+          this.restartTimer = setTimeout(function () { if (self.active) self.listen(); }, 250);
           return;
         }
         var msg = 'تعذّر تشغيل المتابعة الصوتية';
         if (e === 'not-allowed') msg = 'اسمح للتطبيق باستعمال الميكروفون ثم أعد المحاولة';
-        if (e === 'service-not-allowed') {
-          msg = window.navigator.standalone
-            ? 'على iPhone افتح الخطبة في Safari لتعمل المتابعة الصوتية'
-            : 'فعّل Siri والإملاء في إعدادات iPhone ثم أعد المحاولة';
+        if (e === 'service-not-allowed' || e === 'language-not-supported') {
+          var ua = navigator.userAgent || '';
+          if (window.navigator.standalone) {
+            msg = 'افتح الخطبة في تطبيق Safari نفسه، لا من أيقونة الشاشة الرئيسية';
+          } else if (/CriOS|FxiOS|EdgiOS|FBAN|FBAV|Instagram|Line\//.test(ua)) {
+            msg = 'افتح الرابط في تطبيق Safari نفسه لتعمل المتابعة الصوتية';
+          } else {
+            msg = 'افتح الرابط في Safari مباشرة (لا من واتساب)، وفعّل Safari في الإعدادات ← الخصوصية ← التعرف على الكلام';
+          }
         }
         if (e === 'network') msg = 'المتابعة الصوتية تحتاج اتصالًا بالإنترنت';
         if (e === 'audio-capture') msg = 'لم يُعثر على ميكروفون';
@@ -1788,6 +1802,7 @@
         this.locked = false;
         this.active = true;
         this.langIndex = 0;
+        this.heardSomething = false;
         el.body.classList.add('is-voice');
         this.sync();
         this.keepAwake();
