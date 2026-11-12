@@ -824,18 +824,6 @@ body.is-fullscreen .reader {
   transform: scale(0.95);
 }
 
-/* Paused by a tap on the text: a soft pulse on the play button shows how to resume */
-body.is-tap-paused .dock__play {
-  animation: tap-paused-pulse 1.8s var(--ease) infinite;
-}
-@keyframes tap-paused-pulse {
-  0%, 100% { box-shadow: 0 4px 14px color-mix(in srgb, var(--ios-tint) 38%, transparent), 0 0 0 0 color-mix(in srgb, var(--ios-tint) 45%, transparent); }
-  50%      { box-shadow: 0 4px 14px color-mix(in srgb, var(--ios-tint) 38%, transparent), 0 0 0 7px color-mix(in srgb, var(--ios-tint) 0%, transparent); }
-}
-@media (prefers-reduced-motion: reduce) {
-  body.is-tap-paused .dock__play { animation: none; outline: 2px solid var(--ios-tint); outline-offset: 2px; }
-}
-
 .dock__play .ic-pause { display: none; }
 .dock__play.is-playing .ic-play { display: none; }
 .dock__play.is-playing .ic-pause { display: block; }
@@ -1102,9 +1090,15 @@ body.is-tap-paused .dock__play {
 
 .speedGroup {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 0.38rem;
   direction: ltr;
+}
+
+@media (max-width: 420px) {
+  .speedGroup {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .speedChip {

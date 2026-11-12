@@ -8,19 +8,7 @@
   'use strict';
 
   var STORAGE_KEY = 'khutbah_reader_prefs_v3';
-  var SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-
-  /* Snap any saved speed (e.g. 1.1 or 2.3 from older versions) to the
-     nearest value in the current list. */
-  function nearestSpeed(v) {
-    var n = Number(v);
-    if (!isFinite(n)) return 1;
-    var best = SPEEDS[0];
-    for (var i = 1; i < SPEEDS.length; i++) {
-      if (Math.abs(SPEEDS[i] - n) < Math.abs(best - n)) best = SPEEDS[i];
-    }
-    return best;
-  }
+  var SPEEDS = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 2, 2.1, 2.2, 2.3, 2.5, 3];
 
   var DEFAULTS = {
     theme: 'modern-light',
@@ -112,7 +100,6 @@
         var parsed = JSON.parse(raw);
         state = Object.assign({}, DEFAULTS, parsed);
       }
-      state.speed = nearestSpeed(state.speed);
     } catch (e) {}
   }
 
@@ -193,13 +180,9 @@
     subPixelRemainder: 0,
     resumeTimer: null,
 
-    /* true when the reader paused by tapping the text, so the next tap resumes */
-    tapPaused: false,
-
-    start: function (customMsg) {
+    start: function () {
       if (this.active) return;
       this.active = true;
-      this.tapPaused = false;
       this.pausedByTouch = false;
       this.lastTs = 0;
       this.subPixelRemainder = 0;
@@ -207,11 +190,10 @@
       this.syncUI();
       var self = this;
       this.rafId = requestAnimationFrame(function (ts) { self.tick(ts); });
-      Announce.say(customMsg || ('تم تشغيل التمرير التلقائي (' + state.speed + '×)'));
+      Announce.say('تم تشغيل التمرير التلقائي (' + state.speed + '×)');
     },
 
     stop: function (silent, customMsg) {
-      this.tapPaused = false;
       if (this.rafId) {
         cancelAnimationFrame(this.rafId);
         this.rafId = null;
@@ -245,9 +227,8 @@
         el.btnAutoPlay.setAttribute('aria-pressed', this.active ? 'true' : 'false');
       }
       if (el.dockPlayLabel) {
-        el.dockPlayLabel.textContent = this.active ? 'إيقاف مؤقت' : (this.tapPaused ? 'متابعة' : 'تمرير تلقائي');
+        el.dockPlayLabel.textContent = this.active ? 'إيقاف مؤقت' : 'تمرير تلقائي';
       }
-      el.body.classList.toggle('is-tap-paused', !this.active && this.tapPaused);
       if (el.autoToggle) {
         el.autoToggle.checked = this.active;
       }
@@ -301,29 +282,6 @@
       AutoScroll.pausedByTouch = false;
     }, 650);
   }, { passive: true });
-
-  /* ── Tap the text once to pause / tap again to resume ────────────────────
-     Only acts while auto-scroll is running, or after it was paused by a tap,
-     so tapping the text never starts scrolling by surprise. A drag does not
-     produce a click, and a long-press text selection is ignored. */
-  var reader = document.getElementById('reader');
-  if (reader) {
-    reader.addEventListener('click', function (e) {
-      if (!AutoScroll.active && !AutoScroll.tapPaused) return;
-      var t = e.target;
-      if (t && t.closest && t.closest('a, button, input, label, sup, .reader-intro')) return;
-      var sel = window.getSelection ? window.getSelection() : null;
-      if (sel && !sel.isCollapsed && String(sel).trim()) return;
-
-      if (AutoScroll.active) {
-        AutoScroll.stop(false, 'إيقاف مؤقت — المس النص للاستئناف');
-        AutoScroll.tapPaused = true;
-        AutoScroll.syncUI();
-      } else {
-        AutoScroll.start('استئناف التمرير (' + state.speed + '×)');
-      }
-    });
-  }
 
   /* ── Scroll Progress & Active Chapter Tracking ───────────────────────── */
   function updateScrollState() {
@@ -592,38 +550,8 @@
     });
   }
 
-  /* ── Offline Support (Service Worker) ────────────────────────────────── */
-  function setupOffline() {
-    // Service workers need http(s); opening index.html as a local file skips this.
-    if (!('serviceWorker' in navigator)) return;
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
-
-    var firstInstall = !navigator.serviceWorker.controller;
-
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').then(function (reg) {
-        if (!firstInstall) return;
-        var sw = reg.installing || reg.waiting;
-        if (!sw) return;
-        sw.addEventListener('statechange', function () {
-          if (sw.state === 'activated') {
-            Announce.say('الخطبة محفوظة — يمكنك قراءتها دون إنترنت');
-          }
-        });
-      }).catch(function () {});
-    });
-
-    window.addEventListener('offline', function () {
-      Announce.say('لا يوجد اتصال — القراءة مستمرة دون إنترنت');
-    });
-    window.addEventListener('online', function () {
-      Announce.say('عاد الاتصال بالإنترنت');
-    });
-  }
-
   /* ── Initialize ──────────────────────────────────────────────────────── */
   loadState();
   applyState();
   updateScrollState();
-  setupOffline();
 })();
