@@ -1994,3 +1994,4 @@ html[data-theme="dark"] .switch__track {
 }
 .voice-layer__clause { opacity: 0.14; }
 .voice-layer__word   { opacity: 0.42; }
+.voice-layer { will-change: transform; }   /* own GPU layer: moving the boxes does not repaint the text */

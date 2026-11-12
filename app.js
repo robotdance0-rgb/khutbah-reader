@@ -1551,7 +1551,8 @@
                 if (/[.؟?!:؛،]/.test(m[0]) && words.length) sentence++;
                 continue;
               }
-              words.push({ node: node, start: m.index, end: m.index + m[0].length, norm: n, sentence: sentence });
+              words.push({ node: node, start: m.index, end: m.index + m[0].length, norm: n, sentence: sentence,
+                           stop: /[.؟?!:؛]/.test(m[0]) });
               if (/[.؟?!:؛،]/.test(m[0])) sentence++;
             }
           }
@@ -1559,6 +1560,7 @@
         }
         this.words = words;
         this.dirty = false;
+        this.ycache = [];
       },
 
       ensureIndex: function () {
@@ -1579,6 +1581,7 @@
           }
           if (!textChanged) return;
           self.dirty = true;
+          self.ycache = [];
           if (self.active && !self.holding) {
             /* the text reflowed (kashida, font size): rebase so nothing jumps */
             self.commit();
@@ -1597,12 +1600,14 @@
         return r;
       },
 
-      paint: function (scroll) {
-        if (!this.words.length || this.pos < 0) { this.clearPaint(); return; }
-        var w = this.words[Math.min(this.pos, this.words.length - 1)];
+      paint: function () {
+        var at = this.shown;
+        if (!this.words.length || at < 0) { this.clearPaint(); return; }
+        at = Math.min(at, this.words.length - 1);
+        var w = this.words[at];
         if (!el.sheet.contains(w.node)) return;
 
-        var a = this.pos, z = this.pos;
+        var a = at, z = at;
         while (a > 0 && this.words[a - 1].sentence === w.sentence) a--;
         while (z < this.words.length - 1 && this.words[z + 1].sentence === w.sentence) z++;
         var clause = document.createRange();
@@ -1615,7 +1620,6 @@
         } else {
           this.paintLayer(clause, this.rangeFor(w));
         }
-        if (scroll !== false) this.follow(w);
       },
 
       clearPaint: function () {
@@ -1623,7 +1627,9 @@
           CSS.highlights.delete('voice-word');
           CSS.highlights.delete('voice-sentence');
         }
-        if (this.layer) this.layer.innerHTML = '';
+        if (this.layer) {
+          for (var i = 0; i < this.layer.children.length; i++) this.layer.children[i].style.display = 'none';
+        }
       },
 
       /* Older Safari (iOS 15, e.g. iPhone 7) has no CSS Highlight API: draw the
@@ -1642,20 +1648,23 @@
         var origin = el.sheet.getBoundingClientRect();
         var ox = origin.left + el.sheet.clientLeft;
         var oy = origin.top + el.sheet.clientTop;
-        var html = '';
+        var layer = this.layer, used = 0;
         var add = function (range, cls) {
           var rects = range.getClientRects();
           for (var i = 0; i < rects.length; i++) {
             var r = rects[i];
             if (r.width < 1 || r.height < 1) continue;
-            html += '<span class="' + cls + '" style="left:' + (r.left - ox).toFixed(1) +
-                    'px;top:' + (r.top - oy).toFixed(1) + 'px;width:' + r.width.toFixed(1) +
-                    'px;height:' + r.height.toFixed(1) + 'px"></span>';
+            var box = layer.children[used];
+            if (!box) { box = document.createElement('span'); layer.appendChild(box); }
+            if (box.className !== cls) box.className = cls;
+            box.style.cssText = 'left:' + (r.left - ox).toFixed(1) + 'px;top:' + (r.top - oy).toFixed(1) +
+                                'px;width:' + r.width.toFixed(1) + 'px;height:' + r.height.toFixed(1) + 'px';
+            used++;
           }
         };
         add(clause, 'voice-layer__clause');
         add(word, 'voice-layer__word');
-        this.layer.innerHTML = html;
+        for (var k = used; k < layer.children.length; k++) layer.children[k].style.display = 'none';
       },
 
       /* ── Smooth motion ────────────────────────────────────────────────────
@@ -1673,26 +1682,101 @@
       holdUntil: 0,
       holding: false,
       lastSaveAt: 0,
-      SMOOTH_TIME: 0.9,      /* seconds; larger = softer */
+      SMOOTH_TIME: 1.1,     /* seconds; larger = softer (the target itself now moves smoothly) */
       MAX_SPEED: 1600,       /* px per second, for long re-anchors */
       ANCHOR: 0.36,          /* reading point at 36% of the screen height */
 
-      /* Where the reading point should be, in document pixels. */
-      follow: function (w) {
+      /* Reading point of word i in document pixels: its line, plus how far along
+         the line it sits, so consecutive words give a smoothly rising value. */
+      ycache: [],
+      readingDocY: function (i) {
+        if (i < 0) i = 0;
+        if (i >= this.words.length) i = this.words.length - 1;
+        if (this.ycache[i] !== undefined) return this.ycache[i];
+        var w = this.words[i];
         var rects = this.rangeFor(w).getClientRects();
-        if (!rects.length) return;
+        if (!rects.length) return this.ycache[i - 1] || 0;
         var r = rects[0];
         var block = w.node.parentElement ? w.node.parentElement.closest('.doc-body') : null;
         var frac = 0;
         if (block) {
           var b = block.getBoundingClientRect();
-          var width = Math.max(1, b.width);
-          frac = (b.right - r.right) / width;           /* RTL: 0 at line start, 1 at line end */
+          frac = (b.right - r.right) / Math.max(1, b.width);   /* RTL: 0 at line start, 1 at line end */
           frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
         }
-        var readingY = r.top + frac * r.height;           /* visual, includes the transform */
-        var target = this.virtualY + (readingY - window.innerHeight * this.ANCHOR);
-        this.targetY = clamp(target, 0, Metrics.maxScroll);
+        var shift = this.holding ? 0 : (this.virtualY - this.baseY);   /* undo the transform */
+        var y = r.top + frac * r.height + window.scrollY + shift;
+        this.ycache[i] = y;
+        return y;
+      },
+
+      /* ── Pacing ───────────────────────────────────────────────────────────
+         The recognizer answers late (about a second on older iPhones) and in
+         bursts of several words. Between answers the highlight keeps moving at
+         the khateeb's measured pace and makes up for the delay, then corrects
+         itself when the next words arrive — like a voice-driven teleprompter. */
+      disp: -1,            /* paced position (fractional word index) */
+      shown: -1,           /* word currently painted */
+      pace: 2.3,           /* words per second, measured */
+      history: [],
+      lastHeardAt: 0,
+      lastAdvanceAt: 0,
+      gap: 1.2,            /* measured seconds between recognizer answers */
+      LATENCY: 0.8,        /* seconds of recognizer delay to make up for */
+
+      advanced: function (to) {
+        var now = performance.now();
+        this.history.push({ t: now, p: to });
+        while (this.history.length > 2 && now - this.history[0].t > 6000) this.history.shift();
+        var first = this.history[0];
+        var span = (now - first.t) / 1000;
+        if (span >= 1.5 && to > first.p) {
+          var rate = (to - first.p) / span;
+          this.pace = clamp(this.pace * 0.6 + rate * 0.4, 0.8, 4.5);
+        }
+        if (this.lastAdvanceAt) {
+          var g = (now - this.lastAdvanceAt) / 1000;
+          if (g < 5) this.gap = clamp(this.gap * 0.7 + g * 0.3, 0.3, 3);
+        }
+        this.pos = to;
+        this.lastHeardAt = now;
+        this.lastAdvanceAt = now;
+      },
+
+      /* Last word the pacer may reach: the next full stop, semicolon or colon.
+         Khateebs pause there, so the highlight never runs into the next sentence
+         before its first word has actually been heard. */
+      clauseEnd: function (i) {
+        var z = i;
+        while (z < this.words.length - 1 && !this.words[z].stop) z++;
+        return z;
+      },
+
+      stepPace: function (now, dt) {
+        if (this.pos < 0) return;
+        var conf = this.pos;
+        var limit = this.clauseEnd(conf);
+        if (this.disp < 0 || conf - this.disp > 14 || this.disp - limit > 1) {
+          this.disp = conf;                       /* first lock, or a big jump / re-anchor */
+        }
+        /* While answers keep coming, run on at the measured pace for the time
+           since the last answer plus the recognizer's delay — but not past the
+           end of the clause. */
+        var since = (now - this.lastAdvanceAt) / 1000;
+        var speaking = now - this.lastHeardAt < (this.gap * 1.6 + 0.8) * 1000;
+        var aheadSeconds = speaking ? this.LATENCY + Math.min(since, this.gap * 1.3 + 0.3) : 0;
+        var goal = Math.min(conf + this.pace * aheadSeconds, limit + 0.98);
+        if (this.disp < goal) {
+          var behind = goal - this.disp;
+          var rate = behind > 1.5 ? Math.max(this.pace, behind * 1.6) : this.pace;
+          this.disp = Math.min(goal, this.disp + rate * dt);
+        }
+        var idx = Math.floor(this.disp);
+        if (idx !== this.shown) { this.shown = idx; this.paint(); }
+
+        var y0 = this.readingDocY(idx), y1 = this.readingDocY(idx + 1);
+        var reading = y0 + (y1 - y0) * (this.disp - idx);
+        this.targetY = clamp(reading - window.innerHeight * this.ANCHOR, 0, Metrics.maxScroll);
       },
 
       motionStart: function () {
@@ -1748,9 +1832,12 @@
           self.baseY = window.scrollY;
           self.virtualY = window.scrollY;
           self.vel = 0;
+          self.ycache = [];
           el.reader.style.transform = 'translate3d(0, 0px, 0)';
-          if (self.pos >= 0 && self.words[self.pos]) self.follow(self.words[self.pos]);
         }
+
+        self.stepPace(now, dt);
+        if (self.shown < 0) { self.raf = requestAnimationFrame(self.tick); return; }
 
         /* SmoothDamp (critically damped spring) */
         var st = self.SMOOTH_TIME;
@@ -1816,18 +1903,22 @@
         }
 
         var need = this.locked ? 4.5 : 6;
+        /* one clear word right after the current one is enough to move on */
+        if (this.locked && bestJ > this.pos && bestJ - this.pos <= 3 && best >= 3) need = 3;
         if (bestJ < 0 || best < need) return;
         if (bestJ < this.pos && best < 7) return;
         if (bestJ === this.pos) return;
-        this.pos = bestJ;
         this.locked = true;
-        this.paint(true);
+        this.advanced(bestJ);
       },
 
       onResult: function (event) {
         this.heardSomething = true;
+        this.lastHeardAt = performance.now();
+        /* the last few results are enough for the 8-word tail (cheaper on old phones) */
         var text = '';
-        for (var i = 0; i < event.results.length; i++) {
+        var n = event.results.length;
+        for (var i = Math.max(0, n - 3); i < n; i++) {
           text += ' ' + event.results[i][0].transcript;
         }
         this.match(text);
@@ -1880,7 +1971,7 @@
           /* Browsers end a session after silence or ~1 minute: start a new one. */
           if (self.active && self.rec === rec) {
             clearTimeout(self.restartTimer);
-            self.restartTimer = setTimeout(function () { if (self.active) self.listen(); }, 200);
+            self.restartTimer = setTimeout(function () { if (self.active) self.listen(); }, 120);
           }
         };
         this.rec = rec;
@@ -1907,6 +1998,14 @@
         this.watchText();
         this.index();
         this.pos = this.firstVisible() - 1;
+        this.disp = -1;
+        this.shown = -1;
+        this.pace = 2.3;
+        this.history = [];
+        this.lastHeardAt = 0;
+        this.lastAdvanceAt = 0;
+        this.gap = 1.2;
+        this.ycache = [];
         this.locked = false;
         this.active = true;
         this.langIndex = 0;
@@ -1957,9 +2056,14 @@
         for (var i = 0; i < this.words.length; i++) {
           var w = this.words[i];
           if (w.node === node && offset >= w.start && offset <= w.end) {
-            this.pos = i;
             this.locked = true;
-            this.paint(false);
+            this.history = [];
+            this.pos = i;
+            this.disp = i;
+            this.shown = i;
+            this.lastHeardAt = 0;
+            this.lastAdvanceAt = 0;
+            this.paint();
             return true;
           }
         }
@@ -1973,7 +2077,8 @@
       el.btnAuto.addEventListener('click', function () { AutoScroll.toggle(); });
       if (el.btnVoice) el.btnVoice.addEventListener('click', function () { Voice.toggle(); });
       window.addEventListener('resize', function () {
-        if (Voice.active && Voice.layer) Voice.paint(false);
+        Voice.ycache = [];
+        if (Voice.active) Voice.paint();
       });
       /* While following the voice, a finger or the wheel takes over the page;
          the glide resumes gently a moment after the reader lets go. */
