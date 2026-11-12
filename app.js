@@ -1525,7 +1525,6 @@
       dirty: true,
       pos: -1,            /* index of the last word the khateeb said */
       locked: false,      /* false until the first confident match */
-      lastScroll: 0,
       restartTimer: 0,
       wakeLock: null,
       observer: null,
@@ -1580,6 +1579,10 @@
           }
           if (!textChanged) return;
           self.dirty = true;
+          if (self.active && !self.holding) {
+            /* the text reflowed (kashida, font size): rebase so nothing jumps */
+            self.commit();
+          }
           if (self.active) {
             requestAnimationFrame(function () { self.ensureIndex(); self.paint(false); });
           }
@@ -1655,16 +1658,121 @@
         this.layer.innerHTML = html;
       },
 
-      /* Keep the current word around the upper third of the screen. */
+      /* ── Smooth motion ────────────────────────────────────────────────────
+         The page glides with a GPU transform on #reader (sub-pixel, no scroll
+         events), exactly like AutoScroll, toward a reading point that advances
+         word by word — also inside a line — so the motion is continuous instead
+         of jumping a few lines at a time. A critically damped spring
+         (SmoothDamp) keeps the speed changes soft. */
+      raf: 0,
+      lastFrame: 0,
+      baseY: 0,
+      virtualY: 0,
+      vel: 0,
+      targetY: 0,
+      holdUntil: 0,
+      holding: false,
+      lastSaveAt: 0,
+      SMOOTH_TIME: 0.9,      /* seconds; larger = softer */
+      MAX_SPEED: 1600,       /* px per second, for long re-anchors */
+      ANCHOR: 0.36,          /* reading point at 36% of the screen height */
+
+      /* Where the reading point should be, in document pixels. */
       follow: function (w) {
-        var now = Date.now();
-        if (now - this.lastScroll < 350) return;
-        var rect = this.rangeFor(w).getBoundingClientRect();
-        var vh = window.innerHeight;
-        if (rect.top < vh * 0.22 || rect.bottom > vh * 0.58) {
-          this.lastScroll = now;
-          window.scrollTo({ top: window.scrollY + rect.top - vh * 0.36, behavior: 'smooth' });
+        var rects = this.rangeFor(w).getClientRects();
+        if (!rects.length) return;
+        var r = rects[0];
+        var block = w.node.parentElement ? w.node.parentElement.closest('.doc-body') : null;
+        var frac = 0;
+        if (block) {
+          var b = block.getBoundingClientRect();
+          var width = Math.max(1, b.width);
+          frac = (b.right - r.right) / width;           /* RTL: 0 at line start, 1 at line end */
+          frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
         }
+        var readingY = r.top + frac * r.height;           /* visual, includes the transform */
+        var target = this.virtualY + (readingY - window.innerHeight * this.ANCHOR);
+        this.targetY = clamp(target, 0, Metrics.maxScroll);
+      },
+
+      motionStart: function () {
+        Metrics.refresh();
+        this.baseY = window.scrollY;
+        this.virtualY = window.scrollY;
+        this.targetY = window.scrollY;
+        this.vel = 0;
+        this.lastFrame = 0;
+        this.holding = false;
+        this.holdUntil = 0;
+        el.reader.style.transform = 'translate3d(0, 0px, 0)';
+        cancelAnimationFrame(this.raf);
+        this.raf = requestAnimationFrame(this.tick);
+      },
+
+      motionStop: function () {
+        cancelAnimationFrame(this.raf);
+        this.raf = 0;
+        this.commit();
+        updateReadingProgress(window.scrollY);
+        Progress.save();
+      },
+
+      /* Flush the transform into the real scroll position in one frame. */
+      commit: function () {
+        var y = clamp(Math.round(this.virtualY), 0, Metrics.maxScroll);
+        if (el.reader.style.transform) el.reader.style.transform = '';
+        if (Math.abs(window.scrollY - y) >= 1) window.scrollTo(0, y);
+        this.baseY = window.scrollY;
+        this.virtualY = window.scrollY;
+      },
+
+      /* The reader touched or scrolled the page: let go, then glide back gently. */
+      hold: function (ms) {
+        if (!this.active) return;
+        if (!this.holding) { this.commit(); this.vel = 0; }
+        this.holding = true;
+        this.holdUntil = ms === Infinity ? Infinity : performance.now() + ms;
+      },
+
+      tick: function (now) {
+        var self = Voice;
+        if (!self.active) return;
+        if (!self.lastFrame) { self.lastFrame = now; self.raf = requestAnimationFrame(self.tick); return; }
+        var dt = Math.min(0.05, Math.max(0.001, (now - self.lastFrame) / 1000));
+        self.lastFrame = now;
+
+        if (self.holding) {
+          if (now < self.holdUntil || Chrome.panelOpen) { self.raf = requestAnimationFrame(self.tick); return; }
+          /* hold over: continue from wherever the reader left the page */
+          self.holding = false;
+          self.baseY = window.scrollY;
+          self.virtualY = window.scrollY;
+          self.vel = 0;
+          el.reader.style.transform = 'translate3d(0, 0px, 0)';
+          if (self.pos >= 0 && self.words[self.pos]) self.follow(self.words[self.pos]);
+        }
+
+        /* SmoothDamp (critically damped spring) */
+        var st = self.SMOOTH_TIME;
+        var omega = 2 / st;
+        var x = omega * dt;
+        var decay = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+        var change = self.virtualY - self.targetY;
+        var maxChange = self.MAX_SPEED * st;
+        change = clamp(change, -maxChange, maxChange);
+        var goal = self.virtualY - change;
+        var temp = (self.vel + omega * change) * dt;
+        self.vel = (self.vel - omega * temp) * decay;
+        var next = goal + (change + temp) * decay;
+        if ((self.targetY - self.virtualY > 0) === (next > self.targetY)) { next = self.targetY; self.vel = 0; }
+        self.virtualY = clamp(next, 0, Metrics.maxScroll);
+
+        var offset = self.virtualY - self.baseY;
+        el.reader.style.transform = 'translate3d(0, ' + (-offset).toFixed(3) + 'px, 0)';
+        updateReadingProgress(self.virtualY);
+        if (now - self.lastSaveAt > 2500) { self.lastSaveAt = now; Progress.save(self.virtualY); }
+
+        self.raf = requestAnimationFrame(self.tick);
       },
 
       /* Index of the first word visible below the top bar. */
@@ -1805,6 +1913,7 @@
         this.heardSomething = false;
         el.body.classList.add('is-voice');
         this.sync();
+        this.motionStart();
         this.keepAwake();
         this.listen();
         Announce.say('المتابعة الصوتية تعمل — ابدأ القراءة', true);
@@ -1818,6 +1927,7 @@
         this.rec = null;
         if (rec) { try { rec.abort(); } catch (err) {} }
         if (this.wakeLock) { this.wakeLock.release().catch(function () {}); this.wakeLock = null; }
+        this.motionStop();
         this.clearPaint();
         el.body.classList.remove('is-voice');
         this.sync();
@@ -1865,6 +1975,17 @@
       window.addEventListener('resize', function () {
         if (Voice.active && Voice.layer) Voice.paint(false);
       });
+      /* While following the voice, a finger or the wheel takes over the page;
+         the glide resumes gently a moment after the reader lets go. */
+      window.addEventListener('touchstart', function (event) {
+        if (Voice.active && !isChromeTarget(event.target)) Voice.hold(Infinity);
+      }, { passive: true });
+      var voiceRelease = function () { if (Voice.active && Voice.holding) Voice.hold(1200); };
+      window.addEventListener('touchend', voiceRelease, { passive: true });
+      window.addEventListener('touchcancel', voiceRelease, { passive: true });
+      window.addEventListener('wheel', function (event) {
+        if (Voice.active && !isChromeTarget(event.target)) Voice.hold(1500);
+      }, { passive: true });
       el.btnDark.addEventListener('click', function () { Theme.toggleDark(); });
       el.btnPanel.addEventListener('click', function () { Chrome.togglePanel(); });
       el.btnPanelClose.addEventListener('click', function () { Chrome.closePanel(true); });
@@ -1985,6 +2106,7 @@
 
       document.addEventListener('visibilitychange', function () {
         if (document.hidden && AutoScroll.running) AutoScroll.park();
+        if (document.hidden && Voice.active) Voice.commit();
         /* The screen lock is dropped when the page is hidden; take it again. */
         if (!document.hidden && Voice.active) {
           Voice.keepAwake();
@@ -2279,6 +2401,7 @@
 
       window.addEventListener('pagehide', function () {
         if (AutoScroll.running) AutoScroll.commit();
+        if (Voice.active) Voice.commit();
         Progress.save();
       });
       document.addEventListener('visibilitychange', function () {
