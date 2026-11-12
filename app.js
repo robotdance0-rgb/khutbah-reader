@@ -684,6 +684,7 @@
       lastScrollCallAt: 0,
       lastProgressSaveAt: 0,
       resumeTimer: 0,
+      tapPaused: false,   /* paused by a tap on the text; the next tap resumes */
 
       velocity: function () {
         var BASE_LINES_PER_MINUTE = 15.5;
@@ -713,6 +714,7 @@
 
       start: function (announce) {
         if (this.running) return;
+        this.tapPaused = false;
         Metrics.refresh();
         if (window.scrollY >= Metrics.maxScroll - 2) {
           window.scrollTo(0, 0);
@@ -739,6 +741,7 @@
       },
 
       stop: function (announce, reason) {
+        this.tapPaused = false;
         if (!this.running) return;
         this.commit();
         this.running = false;
@@ -1692,6 +1695,27 @@
         if (event.target.closest('button, a, input, .panel')) return;
         var selection = window.getSelection();
         if (selection && String(selection).length > 0) return;
+
+        /* One tap on the khutbah text pauses auto-scroll; the next tap resumes it.
+           When auto-scroll is off (and was not paused by a tap), a tap keeps
+           its usual job of showing / hiding the bars. */
+        if (event.target.closest('#sheet')) {
+          if (AutoScroll.running) {
+            AutoScroll.stop(true, 'إيقاف مؤقت — المس النص للاستئناف');
+            AutoScroll.tapPaused = true;
+            /* stop() settles the page with one scroll, which the scroll handler
+               reads as "scrolling down" and hides the bars; show them after it. */
+            requestAnimationFrame(function () {
+              requestAnimationFrame(function () { Chrome.show(); });
+            });
+            return;
+          }
+          if (AutoScroll.tapPaused) {
+            AutoScroll.start(false);
+            Announce.say('استئناف التمرير التلقائي', true);
+            return;
+          }
+        }
         Chrome.toggle();
       });
 
@@ -1989,6 +2013,22 @@
         Announce.say('التخزين المحلي غير متاح، لن تُحفظ التفضيلات', false);
       }
     });
+
+    /* Offline support: save the khutbah on the device (needs http(s), not file://). */
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+      var firstInstall = !navigator.serviceWorker.controller;
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          var sw = reg.installing || reg.waiting;
+          if (!firstInstall || !sw) return;
+          sw.addEventListener('statechange', function () {
+            if (sw.state === 'activated') {
+              Announce.say('الخطبة محفوظة — يمكنك قراءتها دون إنترنت', true);
+            }
+          });
+        }).catch(function () { /* offline support unavailable */ });
+      });
+    }
   }
 
   if (document.readyState === 'loading') {
